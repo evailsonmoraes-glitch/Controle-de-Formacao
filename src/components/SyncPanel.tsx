@@ -35,17 +35,23 @@ export default function SyncPanel({ currentData, onSyncData }: SyncPanelProps) {
     }
 
     try {
-      // Try to fetch spreadsheet as CSV
-      const response = await fetch(csvUrl);
+      // Try to fetch spreadsheet as CSV through the backend proxy to prevent CORS issues
+      const proxyUrl = `/api/proxy-sheet?url=${encodeURIComponent(csvUrl)}`;
+      const response = await fetch(proxyUrl);
       
+      let csvText = '';
       if (!response.ok) {
-        if (response.status === 401 || response.status === 403 || response.status === 404) {
-          throw new Error('Acesso negado (401/403). A planilha pode estar configurada como Privada no Google Sheets.');
+        let errorData;
+        try {
+          errorData = await response.json();
+        } catch (e) {
+          // Fallback if not JSON
         }
-        throw new Error(`Erro na sincronização automática. Status HTTP: ${response.status}`);
+        const errorText = errorData?.error || `Erro de conexão/sincronia. Status HTTP: ${response.status}`;
+        throw new Error(errorText);
       }
 
-      const csvText = await response.text();
+      csvText = await response.text();
       
       if (!csvText || csvText.includes('Sign in - Google Accounts') || csvText.includes('<!DOCTYPE html>')) {
         // Redirected to login page because spreadsheet is private

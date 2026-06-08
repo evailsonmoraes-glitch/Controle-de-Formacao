@@ -17,7 +17,6 @@ import {
   Search
 } from 'lucide-react';
 import { SpreadsheetData, DataRecord } from './types';
-import KPICards from './components/KPICards';
 import ChartSection from './components/ChartSection';
 import KanbanBoard from './components/KanbanBoard';
 import DataTable from './components/DataTable';
@@ -28,23 +27,37 @@ import MOCK_SHEET_DATA from './utils/mockData';
 import { getSheetsCsvUrl, processRawSpreadsheetData } from './utils/csvParser';
 
 export default function App() {
-  // Always use the requested sheet by default
-  const targetSheetUrl = 'https://docs.google.com/spreadsheets/d/1YCniwIBOIsE6-kujz32YsTGj4ByNJUShcQ96i51sDZI/edit?usp=drive_link';
+  // Always use the requested sheet by default, loading from localStorage if customized
+  const [targetSheetUrl, setTargetSheetUrl] = useState<string>(() => {
+    const savedUrl = localStorage.getItem('formacao_pescadores_target_sheet_url');
+    return savedUrl || 'https://docs.google.com/spreadsheets/d/1YCniwIBOIsE6-kujz32YsTGj4ByNJUShcQ96i51sDZI/edit?usp=drive_link';
+  });
+
+  const [isLocalDatabaseMode, setIsLocalDatabaseMode] = useState<boolean>(() => {
+    const saved = localStorage.getItem('formacao_pescadores_is_local_db_mode');
+    return saved === 'true';
+  });
 
   // Load initially from local storage if existing, otherwise fall back to MOCK_SHEET_DATA
   const [dataState, setDataState] = useState<SpreadsheetData>(() => {
-    const saved = localStorage.getItem('formacao_pescadores_state');
+    const isLocal = localStorage.getItem('formacao_pescadores_is_local_db_mode') === 'true';
+    const key = isLocal ? 'formacao_pescadores_local_db_state' : 'formacao_pescadores_state';
+    const saved = localStorage.getItem(key);
+    
+    // Get current targetSheetUrl (we do it manually here before state is constructed)
+    const currentUrl = localStorage.getItem('formacao_pescadores_target_sheet_url') || 'https://docs.google.com/spreadsheets/d/1YCniwIBOIsE6-kujz32YsTGj4ByNJUShcQ96i51sDZI/edit?usp=drive_link';
+    
     if (saved) {
       try {
         const parsed = JSON.parse(saved);
         // Force URL to target
-        parsed.url = targetSheetUrl;
+        parsed.url = currentUrl;
         return parsed;
       } catch (e) {
         console.error("Erro ao ler cache do localStorage:", e);
       }
     }
-    const fallback = { ...MOCK_SHEET_DATA, url: targetSheetUrl };
+    const fallback = { ...MOCK_SHEET_DATA, url: currentUrl };
     return fallback;
   });
 
@@ -57,18 +70,109 @@ export default function App() {
   const [syncLoading, setSyncLoading] = useState(false);
   const [syncSuccess, setSyncSuccess] = useState<string | null>(null);
   const [syncError, setSyncError] = useState<string | null>(null);
-  const [syncStatus, setSyncStatus] = useState<'success' | 'error' | 'loading' | 'cached'>('cached');
+  const [syncStatus, setSyncStatus] = useState<'success' | 'error' | 'loading' | 'cached'>(() => {
+    const isLocal = localStorage.getItem('formacao_pescadores_is_local_db_mode') === 'true';
+    return isLocal ? 'cached' : 'cached';
+  });
   const [showSharingGuide, setShowSharingGuide] = useState(false);
 
   // Keep localStorage in sync with current state
   useEffect(() => {
     if (dataState) {
-      localStorage.setItem('formacao_pescadores_state', JSON.stringify(dataState));
+      const key = isLocalDatabaseMode ? 'formacao_pescadores_local_db_state' : 'formacao_pescadores_state';
+      localStorage.setItem(key, JSON.stringify(dataState));
     }
-  }, [dataState]);
+  }, [dataState, isLocalDatabaseMode]);
+
+  const handleToggleLocalMode = (isLocal: boolean) => {
+    // 1. Save current state to the prior mode key before switching
+    const currentKey = isLocalDatabaseMode ? 'formacao_pescadores_local_db_state' : 'formacao_pescadores_state';
+    localStorage.setItem(currentKey, JSON.stringify(dataState));
+
+    // 2. Switch mode
+    setIsLocalDatabaseMode(isLocal);
+    localStorage.setItem('formacao_pescadores_is_local_db_mode', String(isLocal));
+
+    // 3. Load or copy state for the new mode
+    const newKey = isLocal ? 'formacao_pescadores_local_db_state' : 'formacao_pescadores_state';
+    const savedNew = localStorage.getItem(newKey);
+    
+    let nextState: SpreadsheetData;
+    if (savedNew) {
+      try {
+        nextState = JSON.parse(savedNew);
+      } catch (e) {
+        nextState = { ...dataState };
+      }
+    } else {
+      // If no local db exists yet, clone the current spreadsheet data state as baseline
+      nextState = { ...dataState };
+    }
+
+    nextState.url = targetSheetUrl;
+    setDataState(nextState);
+
+    // Notice toast feedback
+    setSyncSuccess(isLocal ? "Modo Banco de Dados Local Ativado!" : "Sincronização Online Ativada!");
+    setSyncError(null);
+    setSyncStatus(isLocal ? 'cached' : 'success');
+    setTimeout(() => setSyncSuccess(null), 3500);
+  };
+
+  const handleClearLocalDatabase = () => {
+    const confirmation = window.confirm("Deseja realmente apagar todos os registros do seu Banco de Dados Interno? Esta ação é permanente.");
+    if (!confirmation) return;
+
+    setDataState(prev => ({
+      ...prev,
+      rows: [],
+      lastSynced: new Date().toISOString()
+    }));
+    
+    setSyncSuccess("Banco de Dados interno zerado com sucesso!");
+    setTimeout(() => setSyncSuccess(null), 3000);
+  };
+
+  const handleSeedLocalDatabase = () => {
+    const confirmation = window.confirm("Deseja realmente substituir as linhas atuais pelo conjunto oficial de demonstração?");
+    if (!confirmation) return;
+
+    setDataState(prev => ({
+      ...prev,
+      rows: JSON.parse(JSON.stringify(MOCK_SHEET_DATA.rows)),
+      lastSynced: new Date().toISOString()
+    }));
+
+    setSyncSuccess("Dados de exemplo carregados no Banco de Dados Interno!");
+    setTimeout(() => setSyncSuccess(null), 3000);
+  };
+
+  const handleExportLocalDatabase = () => {
+    try {
+      const dataStr = JSON.stringify(dataState, null, 2);
+      const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+      
+      const exportFileDefaultName = `backup-banco-pescadores-${new Date().toISOString().slice(0, 10)}.json`;
+      
+      const linkElement = document.createElement('a');
+      linkElement.setAttribute('href', dataUri);
+      linkElement.setAttribute('download', exportFileDefaultName);
+      linkElement.click();
+    } catch (err: any) {
+      alert("Erro ao exportar arquivo: " + err.message);
+    }
+  };
 
   // Force fetch direct spreadsheet function
   const handleForceSync = async (isManual: boolean = false) => {
+    if (isLocalDatabaseMode) {
+      if (isManual) {
+        setSyncError("⚠️ Você está operando no Modo Banco de Dados Local! Se deseja atualizar os dados a partir do Google Planilhas, alterne para o 'Modo Planilha' no seletor do cabeçalho.");
+        setSyncStatus('error');
+      }
+      return;
+    }
+
     setSyncLoading(true);
     setSyncSuccess(null);
     if (isManual) {
@@ -126,9 +230,11 @@ export default function App() {
     }
   };
 
-  // Auto-fetch spreadsheet on boot to have instantly fresh data
+  // Auto-fetch spreadsheet on boot to have instantly fresh data (only if not using offline local database)
   useEffect(() => {
-    handleForceSync(false);
+    if (!isLocalDatabaseMode) {
+      handleForceSync(false);
+    }
   }, []);
 
   // Update dynamic filter callbacks
@@ -247,9 +353,38 @@ export default function App() {
     });
   };
 
+  const handleAddCustomOption = (colName: string, newValue: string) => {
+    setDataState(prev => {
+      const trimmedValue = newValue.trim();
+      const updatedColumns = prev.columns.map(col => {
+        if (col.name === colName) {
+          if (!col.distinctValues.includes(trimmedValue)) {
+            return {
+              ...col,
+              distinctValues: [...col.distinctValues, trimmedValue]
+            };
+          }
+        }
+        return col;
+      });
+
+      return {
+        ...prev,
+        columns: updatedColumns,
+        lastSynced: new Date().toISOString()
+      };
+    });
+  };
+
   const handleSyncComplete = (newData: SpreadsheetData) => {
     setDataState(newData);
     setActiveFilters({}); // Reset local active filters
+    
+    // Save custom URL to state and localStorage if it is a google sheets URL
+    if (newData.url && newData.url.includes("docs.google.com/spreadsheets")) {
+      setTargetSheetUrl(newData.url);
+      localStorage.setItem('formacao_pescadores_target_sheet_url', newData.url);
+    }
   };
 
   return (
@@ -268,38 +403,79 @@ export default function App() {
               <Layers className="w-6 h-6" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <h1 className="font-black text-lg sm:text-xl text-white tracking-tight uppercase">
                   Controle de Formação
                 </h1>
-                <span className="bg-emerald-500/20 border border-emerald-500/35 text-[9px] uppercase font-black text-emerald-300 px-2 py-0.5 rounded-lg tracking-wider">
-                  Planilha de Pescadores
-                </span>
+                {isLocalDatabaseMode ? (
+                  <span className="bg-cyan-500/20 border border-cyan-500/35 text-[9px] uppercase font-black text-cyan-300 px-2 py-0.5 rounded-lg tracking-wider flex items-center gap-1 shrink-0">
+                    💾 Banco de Dados local
+                  </span>
+                ) : (
+                  <span className="bg-emerald-500/20 border border-emerald-500/35 text-[9px] uppercase font-black text-emerald-300 px-2 py-0.5 rounded-lg tracking-wider flex items-center gap-1 shrink-0">
+                    🌐 Sincronizado Sheets
+                  </span>
+                )}
               </div>
               <p className="text-indigo-200 text-xs truncate max-w-[280px] sm:max-w-md font-medium mt-0.5">
-                FormacaoPescadores • Drive Link
+                {isLocalDatabaseMode ? "Armazenamento off-line e isolado no navegador" : "FormacaoPescadores • Drive Link"}
               </p>
             </div>
           </button>
 
-          {/* Sync Time Pill */}
-          <div className="flex items-center gap-2.5 flex-wrap text-xs">
-            {dataState.lastSynced && (
-              <span className="bg-white/5 border border-white/15 text-slate-300 px-3.5 py-2 rounded-full font-bold">
-                Última Leitura: {new Date(dataState.lastSynced).toLocaleTimeString('pt-BR')}
-              </span>
-            )}
+          {/* Unified Controls: Database switch & Sincronização */}
+          <div className="flex flex-wrap items-center gap-3 w-full sm:w-auto justify-end">
             
-            <button 
-              id="header-tab-sync-shortcut"
-              onClick={() => handleForceSync(true)}
-              disabled={syncLoading}
-              className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-extrabold px-5 py-2.5 rounded-full flex items-center gap-1.5 transition-all shadow-lg hover:shadow-indigo-600/30 border border-indigo-500/30 cursor-pointer text-xs"
-            >
-              <RefreshCw className={`w-3.5 h-3.5 ${syncLoading ? 'animate-spin' : 'animate-pulse'}`} /> 
-              {syncLoading ? 'Buscando do Google...' : 'Atualizar Planilha'}
-            </button>
+            {/* Elegant Mode Switcher */}
+            <div className="flex bg-slate-950/60 p-1 rounded-2xl border border-white/10 items-center gap-0.5 text-[10px] font-black uppercase shadow-inner">
+              <button
+                type="button"
+                onClick={() => handleToggleLocalMode(false)}
+                className={`px-3 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1 ${
+                  !isLocalDatabaseMode 
+                    ? 'bg-gradient-to-br from-indigo-600 to-blue-600 text-white shadow-md font-black' 
+                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+                }`}
+                title="Sincronizar dados em tempo real com a planilha do Google Sheets"
+              >
+                🌐 Planilha Nuvem
+              </button>
+              <button
+                type="button"
+                onClick={() => handleToggleLocalMode(true)}
+                className={`px-3 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1 ${
+                  isLocalDatabaseMode 
+                    ? 'bg-gradient-to-br from-indigo-500 to-cyan-600 text-white shadow-md font-black' 
+                    : 'text-slate-400 hover:text-white hover:bg-white/5'
+                }`}
+                title="Usar banco de dados local off-line (sem sincronizar e sem sobrescrever)"
+              >
+                💾 Banco Interno
+              </button>
+            </div>
+
+            {/* Sync Trigger / Indicator */}
+            <div className="flex items-center gap-2 text-xs">
+              {dataState.lastSynced && (
+                <span className="bg-white/5 border border-white/15 text-slate-350 px-3.5 py-2 rounded-full font-bold">
+                  {isLocalDatabaseMode ? 'Atualizado às: ' : 'Lida em: '}{new Date(dataState.lastSynced).toLocaleTimeString('pt-BR')}
+                </span>
+              )}
+              
+              {!isLocalDatabaseMode && (
+                <button 
+                  id="header-tab-sync-shortcut"
+                  onClick={() => handleForceSync(true)}
+                  disabled={syncLoading}
+                  className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white font-extrabold px-5 py-2.5 rounded-full flex items-center gap-1.5 transition-all shadow-lg hover:shadow-indigo-600/30 border border-indigo-500/30 cursor-pointer text-xs"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${syncLoading ? 'animate-spin' : 'animate-pulse'}`} /> 
+                  {syncLoading ? 'Buscando...' : 'Ler Planilha'}
+                </button>
+              )}
+            </div>
           </div>
+
         </div>
       </header>
 
@@ -342,19 +518,39 @@ export default function App() {
                 <div className="flex flex-wrap items-center gap-3 pt-1">
                   <button
                     onClick={() => setShowSharingGuide(!showSharingGuide)}
-                    className="bg-indigo-600 hover:bg-indigo-500 text-white font-extrabold px-4 py-2 rounded-xl transition-all shadow-md cursor-pointer flex items-center gap-1.5 text-xs"
+                    className="bg-white/10 hover:bg-white/15 text-white font-extrabold px-4 py-2 rounded-xl transition-all cursor-pointer flex items-center gap-1.5 text-xs border border-white/10"
                   >
                     {showSharingGuide ? "Ocultar Passo a Passo" : "Ver Passo a Passo (Fácil)"}
                   </button>
 
                   <a 
-                    href="https://docs.google.com/spreadsheets/d/1YCniwIBOIsE6-kujz32YsTGj4ByNJUShcQ96i51sDZI/edit" 
+                    href={targetSheetUrl} 
                     target="_blank" 
                     rel="noopener noreferrer"
-                    className="bg-white/10 hover:bg-white/15 text-white font-extrabold px-4 py-2 rounded-xl transition-all cursor-pointer inline-flex items-center gap-1 text-xs"
+                    className="bg-amber-600 hover:bg-amber-500 text-white font-extrabold px-4 py-2 rounded-xl transition-all cursor-pointer inline-flex items-center gap-1 text-xs shadow-md"
                   >
-                    Abrir Planilha do Google ↗
+                    Abrir Planilha Atual ↗
                   </a>
+
+                  <button
+                    onClick={() => {
+                      handleToggleLocalMode(true);
+                      setSyncError(null);
+                    }}
+                    className="bg-cyan-600 hover:bg-cyan-500 text-white font-extrabold px-4 py-2 rounded-xl transition-all shadow-md cursor-pointer flex items-center gap-1.5 text-xs"
+                  >
+                    💾 Ativar Banco Interno (Isolado e Offline)
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      setActiveTab('integracao');
+                      setSyncError(null);
+                    }}
+                    className="bg-indigo-650 hover:bg-indigo-550 text-white font-extrabold px-4 py-2 rounded-xl transition-all shadow-md cursor-pointer flex items-center gap-1.5 text-xs border border-indigo-500/20"
+                  >
+                    🔗 Configurar Meu Link Customizado
+                  </button>
                 </div>
               </div>
             </div>
@@ -456,7 +652,7 @@ export default function App() {
                 <span className="text-slate-400 hover:text-white cursor-pointer" onClick={() => setActiveTab('home')}>Início</span>
                 <span className="text-slate-500">›</span>
                 <span className="text-white">
-                  {activeTab === 'dashboard' ? 'Dashboard Geral' : activeTab === 'cadastro' ? 'Ficha de Cadastro' : 'Consulta de Pescadores'}
+                  {activeTab === 'dashboard' ? 'Dashboard Geral' : activeTab === 'cadastro' ? 'Ficha de Cadastro' : activeTab === 'consulta' ? 'Consulta de Pescadores' : 'Sincronizar Planilha'}
                 </span>
               </div>
             </div>
@@ -495,6 +691,17 @@ export default function App() {
               >
                 <Search className="w-3.5 h-3.5" /> Consultar
               </button>
+
+              <button
+                onClick={() => setActiveTab('integracao')}
+                className={`px-3 py-1.5 rounded-xl text-xs font-extrabold transition-all border cursor-pointer flex items-center gap-1.5 ${
+                  activeTab === 'integracao'
+                    ? 'bg-indigo-600 border-indigo-500/40 text-white shadow-md animate-pulse'
+                    : 'bg-gradient-to-r from-indigo-500/10 to-blue-550/10 hover:from-indigo-500/20 hover:to-blue-550/20 border-indigo-500/20 text-indigo-300 hover:text-white'
+                }`}
+              >
+                <RefreshCw className="w-3.5 h-3.5" /> Planilha
+              </button>
             </div>
           </div>
         )}
@@ -519,13 +726,13 @@ export default function App() {
             </div>
 
             {/* EXPLICIT USER REQUIREMENT: Menu interativo e com botões */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
               
               {/* BOTÃO GRANDE E COLORIDO: DASHBOARD */}
               <button
                 id="portal-dashboard-btn"
                 onClick={() => setActiveTab('dashboard')}
-                className="flex flex-col items-start gap-5 p-6 md:p-8 rounded-[2.5rem] border transition-all text-left relative overflow-hidden group hover:shadow-2xl hover:shadow-indigo-500/15 hover:-translate-y-1 active:translate-y-0 cursor-pointer bg-gradient-to-br from-slate-900/40 via-blue-950/40 to-indigo-900/50 border-white/10 hover:border-indigo-400/40 text-slate-300"
+                className="flex flex-col items-start gap-5 p-6 md:p-8 rounded-[2.5rem] border transition-all text-left relative overflow-hidden group hover:shadow-2xl hover:shadow-indigo-500/15 hover:-translate-y-1 active:translate-y-0 cursor-pointer bg-gradient-to-br from-slate-900/40 via-blue-950/40 to-indigo-900/50 border-white/10 hover:border-indigo-400/40 text-slate-300 animate-fade-in"
               >
                 <div className="absolute -right-6 -bottom-6 w-36 h-36 bg-indigo-500/5 rounded-full blur-2xl group-hover:bg-indigo-500/15 transition-all pointer-events-none" />
                 
@@ -552,7 +759,7 @@ export default function App() {
               <button
                 id="portal-cadastro-btn"
                 onClick={() => setActiveTab('cadastro')}
-                className="flex flex-col items-start gap-5 p-6 md:p-8 rounded-[2.5rem] border transition-all text-left relative overflow-hidden group hover:shadow-2xl hover:shadow-emerald-500/15 hover:-translate-y-1 active:translate-y-0 cursor-pointer bg-gradient-to-br from-slate-900/40 via-teal-950/40 to-emerald-900/50 border-white/10 hover:border-emerald-400/40 text-slate-300"
+                className="flex flex-col items-start gap-5 p-6 md:p-8 rounded-[2.5rem] border transition-all text-left relative overflow-hidden group hover:shadow-2xl hover:shadow-emerald-500/15 hover:-translate-y-1 active:translate-y-0 cursor-pointer bg-gradient-to-br from-slate-900/40 via-teal-950/40 to-emerald-900/50 border-white/10 hover:border-emerald-400/40 text-slate-300 animate-fade-in"
               >
                 <div className="absolute -right-6 -bottom-6 w-36 h-36 bg-emerald-500/5 rounded-full blur-2xl group-hover:bg-emerald-500/15 transition-all pointer-events-none" />
                 
@@ -579,7 +786,7 @@ export default function App() {
               <button
                 id="portal-consulta-btn"
                 onClick={() => setActiveTab('consulta')}
-                className="flex flex-col items-start gap-5 p-6 md:p-8 rounded-[2.5rem] border transition-all text-left relative overflow-hidden group hover:shadow-2xl hover:shadow-violet-500/15 hover:-translate-y-1 active:translate-y-0 cursor-pointer bg-gradient-to-br from-slate-900/40 via-violet-950/40 to-purple-900/50 border-white/10 hover:border-violet-400/40 text-slate-300"
+                className="flex flex-col items-start gap-5 p-6 md:p-8 rounded-[2.5rem] border transition-all text-left relative overflow-hidden group hover:shadow-2xl hover:shadow-violet-500/15 hover:-translate-y-1 active:translate-y-0 cursor-pointer bg-gradient-to-br from-slate-900/40 via-violet-950/40 to-purple-900/50 border-white/10 hover:border-violet-400/40 text-slate-300 animate-fade-in"
               >
                 <div className="absolute -right-6 -bottom-6 w-36 h-36 bg-violet-500/5 rounded-full blur-2xl group-hover:bg-violet-500/15 transition-all pointer-events-none" />
                 
@@ -597,6 +804,33 @@ export default function App() {
                     </h2>
                     <p className="text-[12.5px] font-medium text-slate-400 leading-relaxed group-hover:text-slate-300 transition-colors">
                       Busque pescadores por nome ou CPF, altere presença, confira situações e imprima comprovantes oficiais.
+                    </p>
+                  </div>
+                </div>
+              </button>
+
+              {/* BOTÃO GRANDE E COLORIDO: SINCRONIZAÇÃO */}
+              <button
+                id="portal-sync-settings-btn"
+                onClick={() => setActiveTab('integracao')}
+                className="flex flex-col items-start gap-5 p-6 md:p-8 rounded-[2.5rem] border transition-all text-left relative overflow-hidden group hover:shadow-2xl hover:shadow-amber-500/15 hover:-translate-y-1 active:translate-y-0 cursor-pointer bg-gradient-to-br from-slate-900/40 via-amber-950/20 to-indigo-950/40 border-white/10 hover:border-amber-400/40 text-slate-300 animate-fade-in"
+              >
+                <div className="absolute -right-6 -bottom-6 w-36 h-36 bg-amber-500/5 rounded-full blur-2xl group-hover:bg-amber-300/10 transition-all pointer-events-none" />
+                
+                <div className="w-16 h-16 rounded-3xl flex items-center justify-center shrink-0 transition-transform group-hover:scale-110 duration-300 bg-amber-500/10 text-amber-400 border border-amber-500/20 group-hover:bg-gradient-to-tr group-hover:from-amber-500 group-hover:to-orange-600 group-hover:text-white shadow-lg">
+                  <RefreshCw className="w-8 h-8" />
+                </div>
+                
+                <div className="space-y-1.5 flex-1 flex flex-col justify-between">
+                  <div className="space-y-1.5">
+                    <span className="bg-amber-500/20 text-amber-300 border border-amber-500/30 text-[9px] uppercase font-black px-2.5 py-0.5 rounded-full tracking-wider inline-block">
+                      Planilha e Banco
+                    </span>
+                    <h2 className="font-extrabold text-xl tracking-tight text-white group-hover:text-amber-200 transition-colors">
+                      Conectar Planilha ›
+                    </h2>
+                    <p className="text-[12.5px] font-medium text-slate-400 leading-relaxed group-hover:text-slate-300 transition-colors">
+                      Configure o link do Google Sheets, lance arquivos CSV locais ou mude para o Banco de Dados Interno.
                     </p>
                   </div>
                 </div>
@@ -622,13 +856,25 @@ export default function App() {
                   <Clock className="w-6 h-6" />
                 </div>
                 <div>
-                  <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Última leitura realizada</p>
+                  <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">{isLocalDatabaseMode ? 'Última modificação' : 'Última leitura realizada'}</p>
                   <p className="text-sm font-extrabold text-white mt-1">
                     {dataState.lastSynced ? new Date(dataState.lastSynced).toLocaleTimeString('pt-BR') : 'Sem leitura'}
                   </p>
                 </div>
               </div>
-              {syncStatus === 'success' && (
+              {isLocalDatabaseMode ? (
+                <div className="flex items-center gap-4">
+                  <div className="w-12 h-12 rounded-2xl bg-cyan-500/10 border border-cyan-500/25 flex items-center justify-center text-cyan-400 shrink-0">
+                    <span className="text-sm">🔋</span>
+                  </div>
+                  <div>
+                    <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Status de Sincronia</p>
+                    <span className="text-[10px] font-black bg-cyan-500/15 text-cyan-300 border border-cyan-500/30 px-2 py-0.5 rounded-md inline-block mt-1 uppercase">
+                      Banco Interno (Offline)
+                    </span>
+                  </div>
+                </div>
+              ) : syncStatus === 'success' ? (
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 rounded-2xl bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-center text-emerald-400 shrink-0">
                     <RefreshCw className="w-5 h-5" />
@@ -640,9 +886,7 @@ export default function App() {
                     </span>
                   </div>
                 </div>
-              )}
-
-              {syncStatus === 'loading' && (
+              ) : syncStatus === 'loading' ? (
                 <div className="flex items-center gap-4 animate-pulse">
                   <div className="w-12 h-12 rounded-2xl bg-indigo-500/10 border border-indigo-500/25 flex items-center justify-center text-indigo-400 shrink-0">
                     <RefreshCw className="w-5 h-5 animate-spin" />
@@ -654,9 +898,7 @@ export default function App() {
                     </span>
                   </div>
                 </div>
-              )}
-
-              {syncStatus === 'error' && (
+              ) : syncStatus === 'error' ? (
                 <button 
                   onClick={() => {
                     setShowSharingGuide(true);
@@ -665,7 +907,7 @@ export default function App() {
                   className="flex items-center gap-4 text-left hover:bg-white/5 p-2 rounded-2xl transition-all cursor-pointer w-full focus:outline-none border-none bg-transparent"
                 >
                   <div className="w-12 h-12 rounded-2xl bg-rose-500/10 border border-rose-500/25 flex items-center justify-center text-rose-400 shrink-0">
-                    <RefreshCw className="w-5 h-5 animate-pulse" />
+                     <RefreshCw className="w-5 h-5 animate-pulse" />
                   </div>
                   <div>
                     <p className="text-slate-400 text-[10px] font-bold uppercase tracking-wider">Status de Sincronia</p>
@@ -675,9 +917,7 @@ export default function App() {
                     <span className="block text-[9px] text-slate-400 mt-0.5 underline">Clique para ver como liberar</span>
                   </div>
                 </button>
-              )}
-
-              {syncStatus === 'cached' && (
+              ) : (
                 <div className="flex items-center gap-4">
                   <div className="w-12 h-12 rounded-2xl bg-amber-500/10 border border-amber-500/25 flex items-center justify-center text-amber-400 shrink-0">
                     <RefreshCw className="w-5 h-5" />
@@ -692,6 +932,72 @@ export default function App() {
               )}
             </div>
 
+            {/* Local Database Master Control Dashboard Panel */}
+            {isLocalDatabaseMode && (
+              <div className="bg-gradient-to-br from-slate-900 via-slate-950 to-cyan-950 border border-cyan-500/25 rounded-[2.5rem] p-6 backdrop-blur-md space-y-6 relative overflow-hidden animate-fade-in shadow-2xl shadow-cyan-950/20">
+                <div className="absolute top-0 right-0 w-44 h-44 bg-cyan-500/10 rounded-full blur-3xl pointer-events-none" />
+                
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="flex items-center gap-3">
+                    <div className="p-3.5 bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 rounded-2xl flex items-center justify-center shrink-0 animate-pulse">
+                      <span className="text-2xl">⚡</span>
+                    </div>
+                    <div>
+                      <h3 className="text-base font-black text-white uppercase tracking-wider flex items-center gap-2">
+                        Painel do Banco de Dados Interno
+                      </h3>
+                      <p className="text-xs text-slate-400 mt-0.5">Gestão off-line de registros. Suas modificações estão salvas de forma persistente e isolada de sincronizações externas.</p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2.5 flex-wrap">
+                    <button
+                      onClick={handleExportLocalDatabase}
+                      className="bg-cyan-500/10 hover:bg-cyan-500/15 text-cyan-300 border border-cyan-500/20 px-4 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shadow-md flex-1 md:flex-initial justify-center"
+                    >
+                      📤 Exportar Backup JSON
+                    </button>
+                    <button
+                      onClick={handleSeedLocalDatabase}
+                      className="bg-cyan-950/40 hover:bg-cyan-900/60 text-cyan-200 border border-cyan-500/20 px-4 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shadow-md flex-1 md:flex-initial justify-center"
+                    >
+                      🧪 Dados Demonstrativos
+                    </button>
+                    <button
+                      onClick={handleClearLocalDatabase}
+                      className="bg-rose-500/10 hover:bg-rose-500/15 border border-rose-500/25 text-rose-300 hover:text-rose-250 px-4 py-2.5 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-1.5 shadow-md flex-1 md:flex-initial justify-center"
+                    >
+                      🗑️ Limpar Banco
+                    </button>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4 pt-2 text-[11px] text-slate-350">
+                  <div className="p-4 bg-slate-900/40 border border-white/5 rounded-2xl flex items-start gap-2.5">
+                    <span className="text-cyan-400">🛡️</span>
+                    <div>
+                      <p className="font-extrabold text-white text-xs">Isolamento Seguro</p>
+                      <p className="text-[10px] text-slate-450 mt-0.5 leading-relaxed text-slate-300">Seus dados não sofrem interferência da planilha remota, ideal para cadastrar rascunhos ou usar totalmente em campo.</p>
+                    </div>
+                  </div>
+                  <div className="p-4 bg-slate-900/40 border border-white/5 rounded-2xl flex items-start gap-2.5">
+                    <span className="text-cyan-400">⚡</span>
+                    <div>
+                      <p className="font-extrabold text-white text-xs">Alta Performance</p>
+                      <p className="text-[10px] text-slate-450 mt-0.5 leading-relaxed text-slate-300">Sem carregar redes externas, a inicialização e gravação dos dados são instantâneas.</p>
+                    </div>
+                  </div>
+                  <div className="p-4 bg-slate-900/40 border border-white/5 rounded-2xl flex items-start gap-2.5">
+                    <span className="text-cyan-400">📁</span>
+                    <div>
+                      <p className="font-extrabold text-white text-xs">Portabilidade Garantida</p>
+                      <p className="text-[10px] text-slate-450 mt-0.5 leading-relaxed text-slate-300">Você pode exportar o arquivo de backup a qualquer momento e migrar para outros computadores.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
+
           </div>
         )}
 
@@ -704,8 +1010,6 @@ export default function App() {
               <span className="w-2 h-2 rounded-full bg-indigo-500 animate-ping" />
               <p className="text-xs font-black uppercase text-slate-450 tracking-wider">Módulos Estatísticos e Métricas Ativas</p>
             </div>
-
-            <KPICards data={dataState} activeFilters={activeFilters} />
             
             {/* Dashboard Sub-visualizers Tabs Header switcher */}
             <div className="flex flex-wrap items-center justify-between gap-4 p-4 bg-white/5 border border-white/10 rounded-[2rem] backdrop-blur-md">
@@ -800,6 +1104,7 @@ export default function App() {
               onAddRow={handleAddRow}
               onDeleteRow={handleDeleteRow}
               onRenameOption={handleRenameOption}
+              onAddCustomOption={handleAddCustomOption}
             />
           </div>
         )}
@@ -811,6 +1116,41 @@ export default function App() {
               data={dataState}
               onDeleteRow={handleDeleteRow}
               onUpdateRow={handleUpdateRow}
+            />
+          </div>
+        )}
+
+        {/* PAGE 5: INTEGRACAO / PLANILHA PAGE */}
+        {activeTab === 'integracao' && (
+          <div className="animate-fade-in space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 p-5 bg-white/5 border border-white/10 rounded-[2rem] backdrop-blur-md">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className={`w-2.5 h-2.5 rounded-full ${isLocalDatabaseMode ? 'bg-cyan-500 animate-pulse' : 'bg-emerald-500 animate-pulse'}`} />
+                  <p className="text-xs font-black uppercase text-slate-300 tracking-wider">
+                    Origem de Dados: {isLocalDatabaseMode ? 'Banco de Dados Interno (Isolado/Offline)' : 'Planilha Remota (Sincronizada)'}
+                  </p>
+                </div>
+                <p className="text-slate-400 text-xs mt-1 leading-snug">
+                  Mude a planilha do Google vinculada, carregue planilhas em formato CSV local ou alterne para o Banco de Dados Interno.
+                </p>
+              </div>
+
+              <button
+                onClick={() => handleToggleLocalMode(!isLocalDatabaseMode)}
+                className={`text-xs px-5 py-2.5 rounded-2xl border font-black transition-all cursor-pointer ${
+                  isLocalDatabaseMode
+                    ? 'bg-emerald-500/10 hover:bg-emerald-500/20 border-emerald-500/30 text-emerald-300'
+                    : 'bg-cyan-500/10 hover:bg-cyan-500/20 border-cyan-500/30 text-cyan-300'
+                }`}
+              >
+                {isLocalDatabaseMode ? '🔄 Utilizar Planilha do Google (Online)' : '💾 Utilizar Banco Interno (Isolado e Seguido)'}
+              </button>
+            </div>
+
+            <SyncPanel 
+              currentData={dataState} 
+              onSyncData={handleSyncComplete} 
             />
           </div>
         )}

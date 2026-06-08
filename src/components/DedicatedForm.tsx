@@ -24,9 +24,10 @@ interface DedicatedFormProps {
   onAddRow: (newRow: DataRecord) => void;
   onDeleteRow: (index: number) => void;
   onRenameOption: (colName: string, oldValue: string, newValue: string) => void;
+  onAddCustomOption?: (colName: string, newValue: string) => void;
 }
 
-export default function DedicatedForm({ data, onAddRow, onDeleteRow, onRenameOption }: DedicatedFormProps) {
+export default function DedicatedForm({ data, onAddRow, onDeleteRow, onRenameOption, onAddCustomOption }: DedicatedFormProps) {
   const { columns, rows } = data;
 
   // Form State
@@ -37,10 +38,42 @@ export default function DedicatedForm({ data, onAddRow, onDeleteRow, onRenameOpt
   const [customValues, setCustomValues] = useState<{ [key: string]: string }>({});
   const [showCustomInput, setShowCustomInput] = useState<{ [key: string]: boolean }>({});
 
+  // Modal active state for inserting new options on options window ("janela")
+  const [activeModalCol, setActiveModalCol] = useState<string | null>(null);
+  const [modalInputValue, setModalInputValue] = useState<string>('');
+
   // States for rename / edit options panel
   const [showEditOptions, setShowEditOptions] = useState<{ [key: string]: boolean }>({});
   const [editingOptionIndex, setEditingOptionIndex] = useState<{ [key: string]: number | null }>({});
   const [editingOptionText, setEditingOptionText] = useState<{ [key: string]: string }>({});
+
+  const handleSaveModalOption = () => {
+    const trimmed = modalInputValue.trim();
+    if (!trimmed) {
+      alert("Por favor, digite um texto válido.");
+      return;
+    }
+    if (!activeModalCol) return;
+
+    // Check if it already exists
+    const col = columns.find(c => c.name === activeModalCol);
+    if (col && col.distinctValues.map(v => v.trim().toLowerCase()).includes(trimmed.toLowerCase())) {
+      alert(`Este valor já existe na lista de ${activeModalCol}!`);
+      return;
+    }
+
+    // Call state updater
+    if (onAddCustomOption) {
+      onAddCustomOption(activeModalCol, trimmed);
+    }
+
+    // Automatically select the newly created option
+    setFormData(prev => ({ ...prev, [activeModalCol]: trimmed }));
+
+    // Close and reset modal state
+    setActiveModalCol(null);
+    setModalInputValue('');
+  };
 
   const toggleEditOptions = (colName: string) => {
     setShowEditOptions(prev => ({ ...prev, [colName]: !prev[colName] }));
@@ -401,7 +434,6 @@ export default function DedicatedForm({ data, onAddRow, onDeleteRow, onRenameOpt
                 .filter(col => !keyColumn || col.name !== keyColumn.name)
                 .map(col => {
                   const hasErr = !!errors[col.name];
-                  const hasCustom = showCustomInput[col.name];
 
                   return (
                     <div key={col.name} className="flex flex-col space-y-1.5">
@@ -411,15 +443,18 @@ export default function DedicatedForm({ data, onAddRow, onDeleteRow, onRenameOpt
                           {col.name}
                         </label>
 
-                        {/* If categorical, let them toggle a custom text input */}
+                        {/* If categorical, show + Inserir Novo to trigger our popup window */}
                         {col.type === 'categorical' && (
                           <div className="flex items-center gap-2">
                             <button
                               type="button"
-                              onClick={() => toggleCustomInput(col.name)}
-                              className="text-[10px] font-black uppercase text-indigo-400 hover:text-indigo-350 transition-colors cursor-pointer"
+                              onClick={() => {
+                                setActiveModalCol(col.name);
+                                setModalInputValue('');
+                              }}
+                              className="text-[10px] font-black uppercase text-indigo-400 hover:text-indigo-350 transition-colors cursor-pointer flex items-center gap-0.5"
                             >
-                              {hasCustom ? 'Escolher Lista' : '+ Inserir Novo'}
+                              ✨ + Inserir Novo
                             </button>
                             
                             {(col.name === 'Entidade' || col.name === 'Local de Formação') && (
@@ -440,7 +475,7 @@ export default function DedicatedForm({ data, onAddRow, onDeleteRow, onRenameOpt
                         )}
                       </div>
 
-                      {col.type === 'categorical' && !hasCustom ? (
+                      {col.type === 'categorical' ? (
                         <div className="space-y-1.5">
                           <select
                             required
@@ -516,22 +551,6 @@ export default function DedicatedForm({ data, onAddRow, onDeleteRow, onRenameOpt
                               </p>
                             </div>
                           )}
-                        </div>
-                      ) : col.type === 'categorical' && hasCustom ? (
-                        <div className="relative">
-                          <input 
-                            type="text"
-                            required
-                            placeholder={`Escreva novo(a) ${col.name}`}
-                            value={customValues[col.name] || ''}
-                            onChange={(e) => handleCustomValueChange(col.name, e.target.value)}
-                            className={`w-full bg-indigo-500/5 text-white rounded-2xl text-xs border p-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 placeholder-slate-500 transition-colors pr-10 ${
-                              hasErr ? 'border-rose-500/55 border-dashed font-bold' : 'border-indigo-500/30 font-bold'
-                            }`}
-                          />
-                          <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[9px] uppercase font-black text-indigo-400 bg-indigo-500/20 px-1.5 py-0.5 rounded">
-                            Novo
-                          </span>
                         </div>
                       ) : col.type === 'date' ? (
                         <input 
@@ -784,6 +803,79 @@ export default function DedicatedForm({ data, onAddRow, onDeleteRow, onRenameOpt
         </div>
 
       </div>
+
+      {/* MODAL POPUP WINDOW - JANELA DE INSERÇÃO */}
+      {activeModalCol && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-md animate-fade-in">
+          <div className="relative w-full max-w-md bg-gradient-to-br from-slate-900 via-slate-950 to-indigo-950 border border-white/10 rounded-[2rem] p-6 shadow-2xl space-y-5">
+            
+            {/* Absolute Decorative Glow */}
+            <div className="absolute top-0 right-0 w-32 h-32 bg-indigo-500/10 rounded-full blur-3xl opacity-75 pointer-events-none" />
+            <div className="absolute bottom-0 left-0 w-32 h-32 bg-cyan-500/10 rounded-full blur-3xl opacity-75 pointer-events-none" />
+
+            {/* Header */}
+            <div className="flex items-center gap-3 relative z-10">
+              <div className="p-3 bg-indigo-500/10 text-indigo-400 border border-indigo-500/15 rounded-2xl flex items-center justify-center shrink-0">
+                <span className="text-xl">✨</span>
+              </div>
+              <div>
+                <h4 className="text-sm font-black text-white uppercase tracking-wider">Criar Novo Registro</h4>
+                <p className="text-[10.5px] text-slate-450">
+                  Adicionar nova opção para o campo <strong className="text-indigo-300">{activeModalCol}</strong>
+                </p>
+              </div>
+            </div>
+
+            {/* Input Element */}
+            <div className="space-y-1.5 relative z-10">
+              <label className="text-[10px] font-black uppercase tracking-widest text-slate-400">
+                Texto da Nova Opção
+              </label>
+              <input 
+                type="text"
+                autoFocus
+                placeholder={`Escreva o nome do(a) ${activeModalCol.toLowerCase()}...`}
+                value={modalInputValue}
+                onChange={(e) => setModalInputValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSaveModalOption();
+                  }
+                }}
+                className="w-full bg-slate-900 border border-white/10 focus:border-indigo-500/50 focus:ring-2 focus:ring-indigo-500 text-white rounded-2xl text-xs p-3.5 focus:outline-none transition-all font-bold placeholder-slate-500"
+              />
+            </div>
+
+            {/* Warning Message text */}
+            <p className="text-[10px] text-slate-400 italic leading-snug relative z-10">
+              * Ao salvar, este novo registro será adicionado instantaneamente às opções do menu de seleção.
+            </p>
+
+            {/* Action Buttons */}
+            <div className="flex items-center justify-end gap-3.5 pt-2 relative z-10">
+              <button
+                type="button"
+                onClick={() => {
+                  setActiveModalCol(null);
+                  setModalInputValue('');
+                }}
+                className="px-4.5 py-2.5 rounded-xl text-xs font-bold bg-white/5 hover:bg-white/10 text-slate-300 border border-white/5 transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={handleSaveModalOption}
+                className="px-5.5 py-2.5 rounded-xl text-xs font-black bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-500/10 hover:shadow-indigo-500/20 transition-all cursor-pointer flex items-center gap-1.5"
+              >
+                💾 Salvar Opção
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
 
     </div>
   );
