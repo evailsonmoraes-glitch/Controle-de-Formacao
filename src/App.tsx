@@ -8,7 +8,6 @@ import {
   HelpCircle, 
   Smartphone, 
   Sparkles,
-  Layers,
   UserPlus,
   ArrowLeft,
   Clock,
@@ -25,6 +24,7 @@ import DedicatedForm from './components/DedicatedForm';
 import SearchPage from './components/SearchPage';
 import MOCK_SHEET_DATA from './utils/mockData';
 import { getSheetsCsvUrl, processRawSpreadsheetData } from './utils/csvParser';
+import Logo from './components/Logo';
 
 export default function App() {
   // Always use the requested sheet by default, loading from localStorage if customized
@@ -399,8 +399,8 @@ export default function App() {
             onClick={() => setActiveTab('home')}
             className="flex items-center gap-3 text-left hover:opacity-90 transition-opacity cursor-pointer focus:outline-none bg-transparent border-none p-0"
           >
-            <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-indigo-500 to-blue-600 flex items-center justify-center text-white shadow-lg shadow-indigo-500/30 border border-indigo-400/40">
-              <Layers className="w-6 h-6" />
+            <div className="w-11 h-11 rounded-2xl bg-slate-950/40 border border-white/10 flex items-center justify-center shadow-lg shadow-slate-950/40 backdrop-blur-sm">
+              <Logo size={34} className="w-8.5 h-8.5" />
             </div>
             <div>
               <div className="flex items-center gap-2 flex-wrap">
@@ -712,16 +712,21 @@ export default function App() {
             {/* Glowing system banner portal */}
             <div className="bg-white/5 border border-white/10 rounded-[2.5rem] p-6 md:p-8 relative overflow-hidden backdrop-blur-md">
               <div className="absolute top-0 right-0 p-8 w-64 h-64 bg-indigo-500/10 rounded-full blur-3xl pointer-events-none" />
-              <div className="relative z-10 max-w-3xl">
-                <div className="inline-flex items-center gap-2 px-3 py-1 bg-indigo-500/20 border border-indigo-500/30 rounded-full text-[10px] text-indigo-300 font-extrabold mb-4 uppercase tracking-wider">
-                  <Sparkles className="w-3.5 h-3.5" /> SISTEMA DE CONTROLE ATIVO
+              <div className="relative z-10 flex flex-col md:flex-row items-start md:items-center justify-between gap-6 flex-wrap lg:flex-nowrap">
+                <div className="max-w-3xl">
+                  <div className="inline-flex items-center gap-2 px-3 py-1 bg-indigo-500/20 border border-indigo-500/30 rounded-full text-[10px] text-indigo-300 font-extrabold mb-4 uppercase tracking-wider">
+                    <Sparkles className="w-3.5 h-3.5" /> SISTEMA DE CONTROLE ATIVO
+                  </div>
+                  <h2 className="text-2xl sm:text-3.5xl font-black text-white tracking-tight leading-tight">
+                    Controle de Formação de Pescadores
+                  </h2>
+                  <p className="mt-2 text-indigo-100 text-sm md:text-base leading-relaxed">
+                    Sistema inteligente e dinâmico de gestão para capacitação profissional, integrado em tempo real com o banco de dados oficial do Google Sheets. Escolha uma das operações do menu abaixo para começar.
+                  </p>
                 </div>
-                <h2 className="text-2xl sm:text-3.5xl font-black text-white tracking-tight leading-tight">
-                  Controle de Formação de Pescadores
-                </h2>
-                <p className="mt-2 text-indigo-100 text-sm md:text-base leading-relaxed">
-                  Sistema inteligente e dinâmico de gestão para capacitação profissional, integrado em tempo real com o banco de dados oficial do Google Sheets. Escolha uma das operações do menu abaixo para começar.
-                </p>
+                <div className="hidden md:flex items-center justify-center p-5 bg-slate-950/40 rounded-3xl border border-white/10 aspect-square shrink-0 shadow-lg shadow-slate-950/50">
+                  <Logo size={100} className="w-24 h-24 hover:scale-110 transition-transform duration-500" />
+                </div>
               </div>
             </div>
 
@@ -1083,6 +1088,7 @@ export default function App() {
                     onClearFilters={handleClearFilters}
                     onAddRow={handleAddRow}
                     onDeleteRow={handleDeleteRow}
+                    onUpdateRow={handleUpdateRow}
                   />
                 </div>
               )}

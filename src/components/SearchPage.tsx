@@ -11,7 +11,8 @@ import {
   Building,
   CheckCircle,
   FileCheck2,
-  FileText
+  FileText,
+  Pencil
 } from 'lucide-react';
 import { SpreadsheetData, DataRecord } from '../types';
 
@@ -24,6 +25,10 @@ interface SearchPageProps {
 export default function SearchPage({ data, onDeleteRow, onUpdateRow }: SearchPageProps) {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedPescador, setSelectedPescador] = useState<DataRecord | null>(null);
+  
+  // Card editing states
+  const [editingPescador, setEditingPescador] = useState<any | null>(null);
+  const [editingPescadorIndex, setEditingPescadorIndex] = useState<number | null>(null);
 
   // Status/Situação quick filter pill
   const [situacaoFilter, setSituacaoFilter] = useState<'all' | 'Pendente' | 'Concluído'>('all');
@@ -306,6 +311,18 @@ export default function SearchPage({ data, onDeleteRow, onUpdateRow }: SearchPag
                     <span>Imprimir Ficha</span>
                   </button>
 
+                  {/* EDIT RECORD BUTTON */}
+                  <button
+                    onClick={() => {
+                      setEditingPescadorIndex(item.originalIndex);
+                      setEditingPescador({ ...item });
+                    }}
+                    className="bg-amber-500/10 hover:bg-amber-500/25 border border-amber-500/20 text-amber-300 p-2 rounded-xl transition-all cursor-pointer flex items-center justify-center"
+                    title="Editar informações cadastrais"
+                  >
+                    <Pencil className="w-4 h-4" />
+                  </button>
+
                   {/* DELETE RECORD BUTTON */}
                   <button
                     onClick={() => {
@@ -456,6 +473,96 @@ export default function SearchPage({ data, onDeleteRow, onUpdateRow }: SearchPag
           >
             Fechar Visualização de Impressão (Tela)
           </button>
+        </div>
+      )}
+
+      {/* RENDER BEAUTIFUL FLEXIBLE EDIT POPUP MODAL FOR CARD */}
+      {editingPescador && (
+        <div className="fixed inset-0 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 z-[999] overflow-y-auto animate-fade-in text-white text-left">
+          <div className="bg-[#0f172a] border border-white/10 rounded-[2.5rem] w-full max-w-2xl max-h-[90vh] flex flex-col shadow-2xl overflow-hidden">
+            {/* Header */}
+            <div className="p-6 md:p-8 border-b border-white/5 flex justify-between items-center bg-slate-900/50">
+              <div>
+                <h3 className="text-lg font-black text-indigo-200 flex items-center gap-2">
+                  <Pencil className="w-5 h-5 text-indigo-400 animate-pulse" />
+                  Editar Registro Pescador
+                </h3>
+                <p className="text-slate-400 text-xs mt-1">Altere as informações cadastrais e salve para atualizar</p>
+              </div>
+              <button 
+                onClick={() => { setEditingPescador(null); setEditingPescadorIndex(null); }}
+                className="p-2.5 text-slate-400 hover:text-white rounded-xl hover:bg-white/5 cursor-pointer transition-all"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            
+            {/* Form Fields Grid scrollable */}
+            <div className="p-6 md:p-8 overflow-y-auto space-y-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+                {data.columns.map(col => {
+                  const val = editingPescador[col.name] ?? '';
+                  return (
+                    <div key={col.name} className="flex flex-col space-y-2">
+                      <label className="text-[10px] font-black uppercase text-slate-400 tracking-wider">
+                        {col.name}
+                      </label>
+                      {col.type === 'categorical' ? (
+                        <select
+                          className="bg-slate-950 border border-white/10 text-white rounded-xl text-xs p-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-bold w-full"
+                          value={String(val)}
+                          onChange={(e) => setEditingPescador((prev: any) => ({ ...prev, [col.name]: e.target.value }))}
+                        >
+                          <option value="">(Selecione)</option>
+                          {col.distinctValues.map(v => (
+                            <option key={v} value={v}>{v}</option>
+                          ))}
+                        </select>
+                      ) : col.type === 'date' ? (
+                        <input
+                          type="date"
+                          className="bg-slate-950 border border-white/10 text-white rounded-xl text-xs p-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono font-bold w-full"
+                          value={String(val)}
+                          onChange={(e) => setEditingPescador((prev: any) => ({ ...prev, [col.name]: e.target.value }))}
+                        />
+                      ) : (
+                        <input
+                          type="text"
+                          className="bg-slate-950 border border-white/10 text-white rounded-xl text-xs p-3.5 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-bold w-full"
+                          value={String(val)}
+                          onChange={(e) => setEditingPescador((prev: any) => ({ ...prev, [col.name]: e.target.value }))}
+                        />
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+            
+            {/* Footer Buttons */}
+            <div className="p-6 border-t border-white/5 bg-slate-900/50 flex justify-end gap-3 shrink-0">
+              <button
+                type="button"
+                onClick={() => { setEditingPescador(null); setEditingPescadorIndex(null); }}
+                className="px-5 py-3 bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 text-xs font-bold rounded-xl transition-all cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (editingPescadorIndex !== null) {
+                    onUpdateRow(editingPescadorIndex, editingPescador);
+                    setEditingPescador(null);
+                    setEditingPescadorIndex(null);
+                  }
+                }}
+                className="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-black rounded-xl transition-all cursor-pointer shadow-lg shadow-indigo-500/10 flex items-center justify-center"
+              >
+                Salvar Alterações
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

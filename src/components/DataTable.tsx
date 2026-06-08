@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Search, Plus, Trash2, Download, ChevronLeft, ChevronRight, Filter } from 'lucide-react';
+import { Search, Plus, Trash2, Download, ChevronLeft, ChevronRight, Filter, Pencil, Check, X } from 'lucide-react';
 import { SpreadsheetData, DataRecord } from '../types';
 import { cleanNumber } from '../utils/csvParser';
 
@@ -10,6 +10,7 @@ interface DataTableProps {
   onClearFilters: () => void;
   onAddRow: (newRow: DataRecord) => void;
   onDeleteRow: (index: number) => void;
+  onUpdateRow: (index: number, updatedFields: Partial<DataRecord>) => void;
 }
 
 export default function DataTable({ 
@@ -18,7 +19,8 @@ export default function DataTable({
   onFilterChange, 
   onClearFilters, 
   onAddRow, 
-  onDeleteRow 
+  onDeleteRow,
+  onUpdateRow
 }: DataTableProps) {
   const { columns, rows } = data;
 
@@ -29,6 +31,10 @@ export default function DataTable({
 
   // New row form state
   const [newRowData, setNewRowData] = useState<DataRecord>({});
+
+  // Editing row states
+  const [editingRowIdx, setEditingRowIdx] = useState<number | null>(null);
+  const [editingFields, setEditingFields] = useState<DataRecord>({});
 
   // Get filtered list based on search and selected column filters
   const processedRows = rows.map((row, idx) => ({ row, idx })).filter(({ row }) => {
@@ -321,73 +327,163 @@ export default function DataTable({
               </thead>
               <tbody className="bg-transparent divide-y divide-white/10 text-slate-200">
                 {paginatedRows.length > 0 ? (
-                  paginatedRows.map(({ row, idx }) => (
-                    <tr 
-                      key={idx}
-                      className="hover:bg-white/5 transition-colors"
-                    >
-                      {columns.map(col => {
-                        const cellVal = row[col.name];
-                        let content: any = cellVal;
-                        
-                        // Treat colors or styling for special columns e.g. status
-                        if (col.name.toLowerCase().includes('status')) {
-                          const isSuccess = String(cellVal).toLowerCase().includes('concl');
-                          const isWarning = String(cellVal).toLowerCase().includes('andam') || String(cellVal).toLowerCase().includes('aprov');
-                          const isDanger = String(cellVal).toLowerCase().includes('canc') || String(cellVal).toLowerCase().includes('atras');
+                  paginatedRows.map(({ row, idx }) => {
+                    const isEditingThisRow = editingRowIdx === idx;
+                    return (
+                      <tr 
+                        key={idx}
+                        className={`transition-colors ${isEditingThisRow ? 'bg-indigo-500/5 hover:bg-indigo-500/10' : 'hover:bg-white/5'}`}
+                      >
+                        {columns.map(col => {
+                          const cellVal = row[col.name];
+                          let content: any = cellVal;
                           
-                          content = (
-                            <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold leading-4 tracking-wide border shadow-sm ${
-                              isSuccess ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' : 
-                              isWarning ? 'bg-amber-500/10 text-amber-300 border-amber-500/20' :
-                              isDanger ? 'bg-rose-500/10 text-rose-300 border-rose-500/20' :
-                              'bg-indigo-500/15 text-indigo-300 border-indigo-500/20'
-                            }`}>
-                              {String(cellVal)}
-                            </span>
-                          );
-                        } else if (col.type === 'numeric') {
-                          const parsed = cleanNumber(cellVal);
-                          if (parsed !== null) {
-                            const isCurrency = col.name.toLowerCase().includes('r$') || 
-                                               col.name.toLowerCase().includes('receit') || 
-                                               col.name.toLowerCase().includes('valor');
-                            content = (
-                              <span className="font-mono font-bold text-white">
-                                {isCurrency 
-                                  ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(parsed)
-                                  : parsed.toLocaleString('pt-BR')}
-                              </span>
-                            );
+                          if (isEditingThisRow) {
+                            if (col.type === 'categorical') {
+                              content = (
+                                <select
+                                  className="bg-slate-950/80 border border-white/20 text-white rounded-xl text-xs py-1.5 px-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
+                                  value={String(editingFields[col.name] ?? cellVal ?? '')}
+                                  onChange={(e) => setEditingFields(prev => ({ ...prev, [col.name]: e.target.value }))}
+                                >
+                                  <option value="">(Selecione)</option>
+                                  {col.distinctValues.map(v => (
+                                    <option key={v} value={v}>{v}</option>
+                                  ))}
+                                </select>
+                              );
+                            } else if (col.type === 'numeric') {
+                              content = (
+                                <input
+                                  type="text"
+                                  className="w-24 bg-slate-950/80 border border-white/20 text-white rounded-xl text-xs py-1.5 px-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono font-bold"
+                                  value={String(editingFields[col.name] ?? cellVal ?? '')}
+                                  onChange={(e) => setEditingFields(prev => ({ ...prev, [col.name]: e.target.value }))}
+                                />
+                              );
+                            } else if (col.type === 'date') {
+                              content = (
+                                <input
+                                  type="date"
+                                  className="bg-slate-950/80 border border-white/20 text-white rounded-xl text-xs py-1.5 px-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-mono"
+                                  value={String(editingFields[col.name] ?? cellVal ?? '')}
+                                  onChange={(e) => setEditingFields(prev => ({ ...prev, [col.name]: e.target.value }))}
+                                />
+                              );
+                            } else {
+                              content = (
+                                <input
+                                  type="text"
+                                  className="w-full min-w-[140px] bg-slate-950/80 border border-white/20 text-white rounded-xl text-xs py-1.5 px-3 focus:outline-none focus:ring-2 focus:ring-indigo-500 font-bold"
+                                  value={String(editingFields[col.name] ?? cellVal ?? '')}
+                                  onChange={(e) => setEditingFields(prev => ({ ...prev, [col.name]: e.target.value }))}
+                                />
+                              );
+                            }
+                          } else {
+                            // Treat colors or styling for special columns e.g. status
+                            if (col.name.toLowerCase().includes('status')) {
+                              const isSuccess = String(cellVal).toLowerCase().includes('concl');
+                              const isWarning = String(cellVal).toLowerCase().includes('andam') || String(cellVal).toLowerCase().includes('aprov');
+                              const isDanger = String(cellVal).toLowerCase().includes('canc') || String(cellVal).toLowerCase().includes('atras');
+                              
+                              content = (
+                                <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs font-bold leading-4 tracking-wide border shadow-sm ${
+                                  isSuccess ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/20' : 
+                                  isWarning ? 'bg-amber-500/10 text-amber-300 border-amber-500/20' :
+                                  isDanger ? 'bg-rose-500/10 text-rose-300 border-rose-500/20' :
+                                  'bg-indigo-500/15 text-indigo-300 border-indigo-500/20'
+                                }`}>
+                                  {String(cellVal)}
+                                </span>
+                              );
+                            } else if (col.type === 'numeric') {
+                              const parsed = cleanNumber(cellVal);
+                              if (parsed !== null) {
+                                const isCurrency = col.name.toLowerCase().includes('r$') || 
+                                                   col.name.toLowerCase().includes('receit') || 
+                                                   col.name.toLowerCase().includes('valor');
+                                content = (
+                                  <span className="font-mono font-bold text-white">
+                                    {isCurrency 
+                                      ? new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(parsed)
+                                      : parsed.toLocaleString('pt-BR')}
+                                  </span>
+                                );
+                              }
+                            } else if (col.type === 'date') {
+                              content = <span className="font-mono text-slate-300">{String(cellVal)}</span>;
+                            } else if (col.name.toLowerCase().includes('códig') || col.name.toLowerCase().includes('id')) {
+                              content = <span className="font-mono font-bold text-xs text-indigo-300">{String(cellVal)}</span>;
+                            } else {
+                              content = <span className="text-slate-200">{String(cellVal)}</span>;
+                            }
                           }
-                        } else if (col.type === 'date') {
-                          content = <span className="font-mono text-slate-300">{String(cellVal)}</span>;
-                        } else if (col.name.toLowerCase().includes('códig') || col.name.toLowerCase().includes('id')) {
-                          content = <span className="font-mono font-bold text-xs text-indigo-300">{String(cellVal)}</span>;
-                        } else {
-                          content = <span className="text-slate-200">{String(cellVal)}</span>;
-                        }
 
-                        return (
-                          <td key={col.name} className="px-6 py-4 whitespace-nowrap text-sm">
-                            {content}
-                          </td>
-                        );
-                      })}
-                      
-                      {/* Delete Trigger */}
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button 
-                          id={`table-delete-row-btn-${idx}`}
-                          onClick={() => handleDeleteWithCheck(idx)}
-                          className="text-rose-400 hover:text-rose-350 p-2 hover:bg-rose-500/10 rounded-xl transition-colors cursor-pointer"
-                          title="Excluir Registro"
-                        >
-                          <Trash2 className="w-5 h-5" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                          return (
+                            <td key={col.name} className="px-6 py-4 whitespace-nowrap text-sm">
+                              {content}
+                            </td>
+                          );
+                        })}
+                        
+                        {/* Actions Trigger */}
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {isEditingThisRow ? (
+                              <>
+                                <button 
+                                  type="button"
+                                  onClick={() => {
+                                    onUpdateRow(idx, editingFields);
+                                    setEditingRowIdx(null);
+                                    setEditingFields({});
+                                  }}
+                                  className="text-emerald-400 hover:text-emerald-350 p-2 hover:bg-emerald-500/10 rounded-xl transition-colors cursor-pointer"
+                                  title="Salvar alterações"
+                                >
+                                  <Check className="w-5 h-5" />
+                                </button>
+                                <button 
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingRowIdx(null);
+                                    setEditingFields({});
+                                  }}
+                                  className="text-slate-400 hover:text-white p-2 hover:bg-white/10 rounded-xl transition-colors cursor-pointer"
+                                  title="Cancelar edição"
+                                >
+                                  <X className="w-5 h-5" />
+                                </button>
+                              </>
+                            ) : (
+                              <>
+                                <button 
+                                  type="button"
+                                  onClick={() => {
+                                    setEditingRowIdx(idx);
+                                    setEditingFields({ ...row });
+                                  }}
+                                  className="text-amber-400 hover:text-amber-300 p-2 hover:bg-amber-500/10 rounded-xl transition-colors cursor-pointer"
+                                  title="Editar Registro"
+                                >
+                                  <Pencil className="w-4 h-4" />
+                                </button>
+                                <button 
+                                  id={`table-delete-row-btn-${idx}`}
+                                  onClick={() => handleDeleteWithCheck(idx)}
+                                  className="text-rose-400 hover:text-rose-350 p-2 hover:bg-rose-500/10 rounded-xl transition-colors cursor-pointer"
+                                  title="Excluir Registro"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })
                 ) : (
                   <tr>
                     <td colSpan={columns.length + 1} className="px-6 py-8 text-center text-xs text-slate-400">
